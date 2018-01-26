@@ -13,6 +13,7 @@ import org.apache.solr.search.SolrIndexSearcher;
 import java.io.File;
 import java.io.IOException;
 
+/*Direct implementation of the Lucene IndexBasedSpellChecker class*/
 public class NgramsBasedSpellChecker extends AbstractNotaSpellChecker {
 
 	public static final String THRESHOLD_TOKEN_FREQUENCY = "thresholdTokenFrequency";

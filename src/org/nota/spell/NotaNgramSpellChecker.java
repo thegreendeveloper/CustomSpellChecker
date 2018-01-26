@@ -6,25 +6,18 @@ import java.util.Comparator;
 import java.util.List;
 
 import org.apache.lucene.document.Document;
-import org.apache.lucene.document.Field;
-import org.apache.lucene.document.FieldType;
-import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.IndexWriterConfig.OpenMode;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.IndexWriterConfig.OpenMode;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
-import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
-import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.spell.Dictionary;
 import org.apache.lucene.search.spell.LevensteinDistance;
 import org.apache.lucene.search.spell.StringDistance;
@@ -36,7 +29,17 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefIterator;
 
-public class NotaNgramSimSpellChecker implements java.io.Closeable {
+/*A modified version of the STD lucene/search/spell/SpellChecker.java object
+ * A class NGram has been created in order to separate the code. Small modifications have been applied
+ * to the ngrams method, such that the mapping is not as general as in the STD module. 
+ * Furthermore a validation check have been added to the suggestSimilar method, again in order to
+ * increase computation time when extracting the list of suggested words. 
+ * 
+ * maxHits is set to 500 such that the quality of the suggested words is increased and no longer dependent on the numSug variable. 
+ * If you have a lot of similar data you might want to increase this value. 
+ * */
+
+public class NotaNgramSpellChecker implements java.io.Closeable {
 
 	public static final float DEFAULT_ACCURACY = 0.5f;
 	public static final String F_WORD = "word";
@@ -52,15 +55,15 @@ public class NotaNgramSimSpellChecker implements java.io.Closeable {
 	private StringDistance sd;
 	private Comparator<SuggestWord> comparator;
 
-	public NotaNgramSimSpellChecker(Directory spellIndex, StringDistance sd) throws IOException {
+	public NotaNgramSpellChecker(Directory spellIndex, StringDistance sd) throws IOException {
 		this(spellIndex, sd, SuggestWordQueue.DEFAULT_COMPARATOR);
 	}
 
-	public NotaNgramSimSpellChecker(Directory spellIndex) throws IOException {
+	public NotaNgramSpellChecker(Directory spellIndex) throws IOException {
 		this(spellIndex, new LevensteinDistance());
 	}
 
-	public NotaNgramSimSpellChecker(Directory spellIndex, StringDistance sd, Comparator<SuggestWord> comparator)
+	public NotaNgramSpellChecker(Directory spellIndex, StringDistance sd, Comparator<SuggestWord> comparator)
 			throws IOException {
 		setSpellIndex(spellIndex);
 		setStringDistance(sd);
@@ -143,29 +146,23 @@ public class NotaNgramSimSpellChecker implements java.io.Closeable {
 				return new String[] { word };
 			}
 
-			BooleanQuery.Builder query = new BooleanQuery.Builder();
-			ArrayList<String> grams;
 
-			// grams = formGrams(word, ng); // form word into ngrams (allow dups too)
-			grams = createNgrams(word); // form word into ngrams (allow dups too)
-			String key = "trigram"; // form key
-			for (int i = 0; i < grams.size(); i++) {
-				add(query, key, grams.get(i));
-			}
+			BooleanQuery.Builder query = NGram.buildNgramQuery(word);
 
 			/*
-			 * TODO : This peace of code was made to fasten the search, although this truly
+			 * This peace of code was made to fasten the search, although this truly
 			 * limits the scope of the search results. Originally the value was set to 10
 			 * which is way too low
 			 */
-			int maxHits = 100 * numSug;
-
+			int maxHits = 1000;		
+		
 			ScoreDoc[] hits = indexSearcher.search(query.build(), maxHits).scoreDocs;
 			SuggestWordQueue sugQueue = new SuggestWordQueue(numSug, comparator);
-
+//			System.out.println("Size of hits : "+ hits.length);
+			
+			
 			// go thru more than 'maxr' matches in case the distance filter triggers
 			int stop = Math.min(hits.length, maxHits);
-			System.out.println(stop);
 			SuggestWord sugWord = new SuggestWord();
 			for (int i = 0; i < stop; i++) {
 
@@ -175,7 +172,16 @@ public class NotaNgramSimSpellChecker implements java.io.Closeable {
 				if (sugWord.string.equals(word)) {
 					continue;
 				}
-
+				
+				//Added by TR in order to save computation time of distance metric
+				//As it is costly to calculate the distance between two strings, we use the lowest values in the queue
+				//to predict whether or not the suggested word will have a distance near this value.
+				//if so, we can simply skip the word. 
+				if (sugQueue.top() != null && 
+						Math.abs(word.length()-sugWord.string.length()) > (word.length() * (sugQueue.top().score))) {	
+					continue;
+				}
+				
 				// edit distance
 				sugWord.score = sd.getDistance(word, sugWord.string);
 				if (sugWord.score < accuracy) {
@@ -210,65 +216,7 @@ public class NotaNgramSimSpellChecker implements java.io.Closeable {
 		}
 	}
 
-	private static void add(BooleanQuery.Builder q, String name, String value) {
-		q.add(new BooleanClause(new TermQuery(new Term(name, value)), BooleanClause.Occur.SHOULD));
-	}
-
-	/* Singular mapping */
-	public static ArrayList<String> createNgramsSingular(int ngram, String word) {
-		ArrayList<String> stringVector = new ArrayList<String>();
-		for (int index = 0; index < word.length(); index++) {
-
-			if (index - ngram + 1 < 0) {
-				stringVector.add(word.substring(0, index + 1));
-			}
-
-			if (index + ngram > word.length()) {
-				stringVector.add(word.substring(index));
-			}
-
-			if (index + ngram <= word.length())
-				stringVector.add(word.substring(index, index + ngram));
-		}
-		return stringVector;
-	}
-
-	/* tri-gram or four-gram mapping */
-	public static ArrayList<String> createNgrams(String word) {
-		ArrayList<String> stringVector = new ArrayList<String>();
-		if (word.length() < 3) {
-			/* testing */
-			stringVector = createNgramsSingular(3, word);
-			// stringVector.add(word);
-			return stringVector;
-		}
-
-		int ngram = 0;
-		if (word.length() > 4)
-			ngram = 4;
-		else
-			ngram = 3;
-
-		/*
-		 * adding the 2..ngram-1 grams of the beginning of the word. We do not want any
-		 * grams only containing one character
-		 */
-		for (int i = 2; i < ngram; i++)
-			stringVector.add(word.substring(0, i));
-		/*
-		 * adding the 2..ngram-1 grams of the end of the word. We do not want any grams
-		 * only containing one character
-		 */
-		for (int i = word.length() - ngram + 1; i < word.length() - 1; i++)
-			stringVector.add(word.substring(i, word.length()));
-
-		/* creating the overlapping ngrams */
-		for (int index = 0; index < word.length(); index++) {
-			if (index + ngram <= word.length())
-				stringVector.add(word.substring(index, index + ngram));
-		}
-		return stringVector;
-	}
+	
 
 	public void clearIndex() throws IOException {
 		synchronized (modifyCurrentIndexLock) {
@@ -328,7 +276,7 @@ public class NotaNgramSimSpellChecker implements java.io.Closeable {
 					}
 
 					// ok index the word
-					Document doc = createDocument(word);
+					Document doc = NGram.createDocument(word);
 					writer.addDocument(doc);
 				}
 			} finally {
@@ -344,53 +292,7 @@ public class NotaNgramSimSpellChecker implements java.io.Closeable {
 		}
 	}
 
-	private static Document createDocument(String text) {
-		Document doc = new Document();
-		// the word field is never queried on... it's indexed so it can be quickly
-		// checked for rebuild (and stored for retrieval). Doesn't need norms or TF/pos
-		Field f = new StringField(F_WORD, text, Field.Store.YES);
-		doc.add(f); // orig term
-		addGram(text, doc);
-		return doc;
-	}
-
-	private static void addGram(String text, Document doc) {
-		// int len = text.length();
-		// for (int ng = ng1; ng <= ng2; ng++) {
-		// String key = "gram" + ng;
-		// String end = null;
-		// for (int i = 0; i < len - ng + 1; i++) {
-		// String gram = text.substring(i, i + ng);
-		// FieldType ft = new FieldType(StringField.TYPE_NOT_STORED);
-		// ft.setIndexOptions(IndexOptions.DOCS_AND_FREQS);
-		// Field ngramField = new Field(key, gram, ft);
-		// // spellchecker does not use positional queries, but we want freqs
-		// // for scoring these multivalued n-gram fields.
-		// doc.add(ngramField);
-		// if (i == 0) {
-		// // only one term possible in the startXXField, TF/pos and norms aren't
-		// needed.
-		// Field startField = new StringField("start" + ng, gram, Field.Store.NO);
-		// doc.add(startField);
-		// }
-		// end = gram;
-		// }
-		// if (end != null) { // may not be present if len==ng1
-		// // only one term possible in the endXXField, TF/pos and norms aren't needed.
-		// Field endField = new StringField("end" + ng, end, Field.Store.NO);
-		// doc.add(endField);
-		// }
-		// }
-
-		String key = "trigram"; // form key
-		ArrayList<String> grams = createNgrams(text);
-		for (String gram : grams) {
-			FieldType ft = new FieldType(StringField.TYPE_NOT_STORED);
-			ft.setIndexOptions(IndexOptions.DOCS_AND_FREQS);
-			Field ngramField = new Field(key, gram, ft);
-			doc.add(ngramField);
-		}
-	}
+	
 
 	private IndexSearcher obtainSearcher() {
 		synchronized (searcherLock) {

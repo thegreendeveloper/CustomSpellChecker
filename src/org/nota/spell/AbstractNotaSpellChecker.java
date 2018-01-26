@@ -29,14 +29,6 @@ import org.apache.solr.spelling.SpellingResult;
 
 /**
  * Abstract base class for all Lucene-based spell checking implementations.
- * 
- * <p>
- * Refer to <a href=
- * "http://wiki.apache.org/solr/SpellCheckComponent">SpellCheckComponent</a> for
- * more details.
- * </p>
- * 
- * @since solr 1.3
  */
 public abstract class AbstractNotaSpellChecker extends SolrSpellChecker {
 
@@ -50,7 +42,7 @@ public abstract class AbstractNotaSpellChecker extends SolrSpellChecker {
 	public static final String SCORE_COMP = "score";
 	public static final String FREQ_COMP = "freq";
 
-	protected org.nota.spell.NotaNgramSimSpellChecker spellChecker;
+	protected org.nota.spell.NotaNgramSpellChecker spellChecker;
 
 	protected String sourceLocation;
 	/*
@@ -101,7 +93,7 @@ public abstract class AbstractNotaSpellChecker extends SolrSpellChecker {
 		}
 		try {
 			initIndex();
-			spellChecker = new NotaNgramSimSpellChecker(index, sd, comp);
+			spellChecker = new NotaNgramSpellChecker(index, sd, comp);
 		} catch (IOException e) {
 			throw new RuntimeException(e);
 		}
@@ -261,7 +253,7 @@ public abstract class AbstractNotaSpellChecker extends SolrSpellChecker {
 		return sd;
 	}
 
-	public NotaNgramSimSpellChecker getSpellChecker() {
+	public NotaNgramSpellChecker getSpellChecker() {
 		return spellChecker;
 	}
 }
