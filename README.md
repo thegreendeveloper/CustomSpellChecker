@@ -7,11 +7,11 @@ Modification of the Solr and Lucene standard spell checker module (classes). The
 [Lucene SpellChecker](https://github.com/apache/lucene-solr/blob/master/lucene/suggest/src/java/org/apache/lucene/search/spell/SpellChecker.java)
 implements. 
 
-In relation to information about Ngram methods I refer to [Ngram](https://en.wikipedia.org/wiki/N-gram). 
+Information about Ngram methods can be found here [Ngram](https://en.wikipedia.org/wiki/N-gram). 
 
-### Ngrams spell checker
+### N-grams spell checker
 To up the speed small modificaitons have been applied to the n-grams indexing method. These result in a less generel mapping but still
-shows very good results in relation to the quality of the spell checker. The basis of the ngrams indexing approach is:
+shows very good results in relation to the quality of the spell checker. The basis of the n-grams indexing approach is:
 
 * if input length > 5 
   * use tri- to four-grams
